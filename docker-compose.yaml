@@ -63,7 +63,8 @@ services:
   postgres: # hostname in docker network
     image: postgres:16
     ports:
-      - 5433:5432
+      # - 5433:5432 # in ubuntu
+      - 5434:5432 # in Windows
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
