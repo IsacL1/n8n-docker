@@ -5,7 +5,15 @@ http://ollama.localhost:8080/auth?redirect=%2F
 https://n8n.localhost/
 
 # pull modeal: Llama3.1 & Llama3.2 & Mistral #
-`docker exec -it ollama ollama pull Llama3.1 && docker exec -it ollama ollama pull Llama3.2 && docker exec -it ollama ollama pull Mistral`
+## download model seperetly ##
+` docker exec -it ollama ollama pull Llama3.1 `
+` docker exec -it ollama ollama pull Llama3.2:1b `
+` docker exec -it ollama ollama pull Llama3.2:3b `
+` docker exec -it ollama ollama pull Mistral `
+` docker exec -it ollama ollama pull Gemma3:27b`
+
+## or oneoff download ##
+`docker exec -it ollama ollama pull Llama3.1 && docker exec -it ollama ollama pull Llama3.2:1b && docker exec -it ollama ollama pull llama3.2:3b && docker exec -it ollama ollama pull Mistral && docker exec -it ollama ollama pull Gemma3:27b`
 
 # Menual backup or Migrate Data
 1. sudo docker compose down
