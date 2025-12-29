@@ -60,7 +60,7 @@ services:
     depends_on:
       - postgres
 
-  postgres: # hostname in docker network
+  postgres-db: # hostname in docker network
     image: postgres:16
     ports:
       # - 5433:5432 # in ubuntu
