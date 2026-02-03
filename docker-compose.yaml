@@ -1,110 +1,123 @@
+# Generate by grok, reply B
+version: "3.9"
+
 services:
   traefik:
-    image: "traefik"
-    restart: always
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.mytlschallenge.acme.tlschallenge=true"
-      - "--certificatesresolvers.mytlschallenge.acme.email=${SSL_EMAIL}"
-      - "--certificatesresolvers.mytlschallenge.acme.storage=/letsencrypt/acme.json"
+    image: traefik:v3.6
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "80:80"
       - "443:443"
+      - "8080:8080"   # uncomment to expose dashboard (insecure without basic auth!)
     volumes:
-      - traefik_data:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/administrator/docker/n8n-docker/traefik:/etc/traefik:ro
+      # Optional dynamic config folder
+    environment:
+      - TZ=${GENERIC_TIMEZONE}
+    command:
+      - --configFile=/etc/traefik/traefik.yaml
+      
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`${TRAEFIK_SUBDOMAIN}.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares="   # optional – see below
+
+  postgres:
+    image: postgres:16
+    container_name: n8n-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./postgres_storage:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
-    restart: always
-    ports:
-      - "5678:5678"
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.n8n.rule=Host(`${SUBDOMAIN}.${DOMAIN_NAME}`)
-      - traefik.http.routers.n8n.tls=true
-      - traefik.http.routers.n8n.entrypoints=web,websecure
-      - traefik.http.routers.n8n.tls.certresolver=mytlschallenge
-      - traefik.http.middlewares.n8n.headers.SSLRedirect=true
-      - traefik.http.middlewares.n8n.headers.STSSeconds=315360000
-      - traefik.http.middlewares.n8n.headers.browserXSSFilter=true
-      - traefik.http.middlewares.n8n.headers.contentTypeNosniff=true
-      - traefik.http.middlewares.n8n.headers.forceSTSHeader=true
-      - traefik.http.middlewares.n8n.headers.SSLHost=${DOMAIN_NAME}
-      - traefik.http.middlewares.n8n.headers.STSIncludeSubdomains=true
-      - traefik.http.middlewares.n8n.headers.STSPreload=true
-      - traefik.http.routers.n8n.middlewares=n8n@docker
+    container_name: n8n
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    #ports:
+    #  - "5678:5678"
     environment:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
-      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
-      - N8N_HOST=${SUBDOMAIN}.${DOMAIN_NAME}
-      - N8N_PORT=5678
+      #- N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}	# ????????
+      - N8N_HOST=${N8N_SUBDOMAIN}.${DOMAIN_NAME}
       - N8N_PROTOCOL=https
-      - N8N_RUNNERS_ENABLED=true
-      - NODE_ENV=production
-      - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
+      - WEBHOOK_URL=https://${N8N_SUBDOMAIN}.${DOMAIN_NAME}/
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
-      - TZ=${GENERIC_TIMEZONE}
     volumes:
-      - ./n8n_storage:/home/node/.n8n
-      - ./local-files:/files
-    depends_on:
-      - postgres
+      - /home/administrator/docker/n8n-docker/n8n_storage:/home/node/.n8n
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=Host(`${N8N_SUBDOMAIN}.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls=true"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+      - "traefik.http.routers.n8n-http.rule=Host(`${N8N_SUBDOMAIN}.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.n8n-http.entrypoints=web"
+      - "traefik.http.routers.n8n-http.middlewares=redirect-to-https"
 
-  postgres-db: # hostname in docker network
-    image: postgres:16
-    ports:
-      # - 5433:5432 # in ubuntu
-      - 5434:5432 # in Windows
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
-    volumes:
-      - ./postgres_storage:/var/lib/postgresql/data
-  
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
-    restart: always
-    ports:
-      - ${OLLAMA_PORT}:11434
-    pull_policy: always
-    tty: true
+    restart: unless-stopped
     volumes:
-      - ./model_files:/ollama/model_files
-
+      - ./model_files:/root/.ollama
+    # GPU support (uncomment if you have NVIDIA GPU + nvidia-container-toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ollama.rule=Host(`${OLLAMA_SUBDOMAIN}.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.ollama.entrypoints=websecure"
+      - "traefik.http.routers.ollama.tls=true"
+      - "traefik.http.services.ollama.loadbalancer.server.port=11434"
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
-    ports:
-      -  ${OPEN_WEBUI_PORT}:8080 # Access the UI on http://localhost:8080
-    environment:
-      # This variable tells the web UI where to find the Ollama API
-      - OLLAMA_API_BASE_URL=http://ollama.localhost:${OLLAMA_PORT}/api
-      - WEBUI_SECRET_KEY=${OLLAMA_API_KEY}
-    extra_hosts:
-      - ollama.localhost:host-gateway
-    volumes:
-      - webui_data:/app/backend/data
-    restart: always
+    restart: unless-stopped
     depends_on:
       - ollama
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=${OLLAMA_API_KEY}
+      - TZ=${GENERIC_TIMEZONE}
+    volumes:
+      - ./webui_data:/app/backend/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openwebui.rule=Host(`${WEBUI_SUBDOMAIN}.${DOMAIN_NAME}`)"   # or ai.${DOMAIN} etc.
+      - "traefik.http.routers.openwebui.entrypoints=websecure"
+      - "traefik.http.routers.openwebui.tls=true"
+      - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
 
-      
-volumes:
-  n8n_storage:
-  postgres_storage:
-  traefik_data:
-  ollama_data:
-  webui_data:
+networks:
+  default:
+    name: traefik-net
